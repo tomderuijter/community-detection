@@ -27,20 +27,20 @@ t = 10;
 % Initializing trail and heuristic
 T = double(A~=0) .* t;
 T(logical(eye(size(T)))) = 0;               % Set diagonal to zero
-H = 1.0 / (1 + exp(corrcoef(A)));           % Sigmoidal Pearson correlation
+H = 1.0 ./ (1 + exp(corrcoef(A)));           % Sigmoidal Pearson correlation
 H(logical(T==0)) = 0;                       % Remove non-connected values
 
 % Main loop
 dim = length(A);
-s_gb = ones(dim,1) * (-1);                  % Global best solution
+s_gb = ones(1,dim) * (-1);                  % Global best solution
 M_sgb = 0;
 for it = 1:N
-    s_ib = ones(dim,1) * (-1);              % Iteration best solution
+    s_ib = ones(1,dim) * (-1);              % Iteration best solution
     M_sib = 0;
     S = cell(n_a,1);
     P = ProbabilityMap(T,H,a,b);
     for ant = 1:n_a
-        [s,~] = find(mnrnd(1,P)');          % Construct trail for a single ant
+        [s,~] = find(mnrnd( 1,P)');          % Construct trail for a single ant
         S{ant,1} = s;
         M_s = Modularity(A,s);
         if (M_s > M_sib)
@@ -66,45 +66,55 @@ end
 function [Q] = Modularity (A,s)
 
 m = nnz(A);
-dim = length(A);
-sum = 0;
 C = Membership(s);
-for i = 1:dim;
-    for j = 1:dim;
-        % return 0 if i and j are in different modules
-        if C(i) ~= C(j)
-            continue;
-        end
-        k_i = nnz(A(i,:));
-        k_j = nnz(A(j,:));
-        sum = sum + (A(i,j) - (k_i*k_j)/(2*m));
-    end
-end
-Q = sum / (2*m);
+dim = length(C);
+
+% Construct membership matrix out of vector.
+num_cats = max(C);
+S = zeros(dim,num_cats);
+idx = sub2ind([dim,num_cats],1:dim,C);
+S(idx)=1;
+
+K = diag(A*A');
+B = A - ((K*K')/(2*m));
+Q = trace(S'*B*S)/(2*m);
+
 end
 
-% Performs a bread-first search to construct membership vectors
+% Performs a depth-first search to construct membership vectors
 function [C] = Membership(s)
 
 dim = length(s);
 visited = zeros(dim,1);
-count = 0;                                                      % i == nnz(C)
 C = zeros(1,dim);
-c = 0;
-while (dim > count)
-	queue = find(visited==0, 1, 'first');  					% Pick first unvisited node
+c = 1;
+while (dim > nnz(C))
+	stack = find(visited==0, 1, 'first');  					% Pick first unvisited node
+    [C,visited] = Search(s,C,c,stack,visited);
     c = c+1;
-	while (~isempty(queue))
-        v = queue(1); queue(1) = [];						% Pop first element from queue
-        visited(v) = 1; count=count+1;						% Add element to visited
-        C(v) = c;
-        neighbours = [s(v), find(s==v)];					% Expand neighbours
-        neighbours = neighbours(visited(neighbours) == 0);	% Filter out visited neighbours
-        queue = [neighbours,queue];							%#ok<AGROW>		
-	end
 end
 
 end
+
+function [C,visited] = Search(s,C,c,stack,visited)
+
+    while (~isempty(stack))
+        v = stack(1); stack(1) = [];						% Pop first element from queue
+        visited(v) = 1;             						% Add element to visited
+        C(v) = c;
+        % Below list may contain duplicates, which is not a problem.
+        neighbours = Neighbours (s,v,visited);
+        stack = [neighbours,stack];							%#ok<AGROW>		
+    end
+
+end
+
+function [neighbours] = Neighbours (s,v,visited)
+    neighbours = [s(v), find(s==v)'];                   % Expand neighbours
+    neighbours = neighbours(visited(neighbours) == 0);	% Filter out visited neighbours
+end
+
+
 
 % Calculates the ant-based probability for every vertex in the graph
 function [P] = ProbabilityMap (T,H,a,b)
